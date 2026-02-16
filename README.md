@@ -1,10 +1,10 @@
 # DS1821 Tools for Raspberry Pi
 
-Read temperature from a **DS1821** 1-Wire thermometer/thermostat on a Raspberry Pi using GPIO bit-bang.
+Read temperature from a **DS1821** 1-Wire thermometer/thermostat on a Raspberry Pi using GPIO.
 
 ## The problem
 
-The DS1821 has a completely different protocol from modern 1-Wire thermometers — no scratchpad, dedicated function commands, and a thermostat mode that makes it invisible to the kernel's `w1_therm` driver.
+The DS1821 has a completely different protocol from most 1-Wire thermometers — no scratchpad, dedicated function commands, and a thermostat mode that makes it invisible to the kernel's `w1_therm` driver.
 
 This project provides tools to communicate with a DS1821 by bit-banging the 1-Wire bus directly via GPIO.
 
@@ -13,7 +13,7 @@ This project provides tools to communicate with a DS1821 by bit-banging the 1-Wi
 The DS1821 **cannot share a 1-Wire bus** with any other device. This is a
 hardware-level limitation, not a software bug.
 
-### No ROM — commands are broadcast
+### No ROM
 
 Normal 1-Wire devices have a unique 64-bit ROM code. The master uses
 Match ROM (0x55) or Skip ROM (0xCC) to address a specific device before
@@ -42,21 +42,6 @@ status registers.
 In thermostat mode the DS1821 drives the DQ pin as TOUT (thermostat output)
 whenever it is not being addressed. A DS1821 asserting TOUT low will pull
 the entire bus low, preventing any other device from communicating at all.
-
-### The kernel driver cannot help
-
-The kernel’s `w1_therm` stack relies on ROM-based enumeration.
-A thermostat-mode DS1821 has no ROM identity, so the kernel never sees it.
-`ds1821-program` bypasses the kernel entirely, talking to the DS1821 via
-direct GPIO bit-bang.
-
-### Summary
-
-| Issue | Consequence |
-|-------|-------------|
-| No ROM support | Every command is broadcast to all devices |
-| Open-drain AND-ing | Read data is corrupted when multiple devices respond |
-| TOUT drives DQ low | Bus held low, all communication blocked |
 
 **Each DS1821 must be the only device on its 1-Wire bus.** Use a separate
 GPIO pin for each DS1821, and do not place any other 1-Wire device on the
