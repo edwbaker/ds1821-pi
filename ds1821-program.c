@@ -55,9 +55,7 @@
 #define DS1821_STATUS_1SHOT  0x01
 
 /* 1-Wire ROM commands */
-#define OW_CMD_READ_ROM    0x33
 #define OW_CMD_SKIP_ROM    0xCC
-#define OW_CMD_SEARCH_ROM  0xF0
 
 /* ── 1-Wire Timing (microseconds) ────────────────────────────────── */
 /*
@@ -380,227 +378,10 @@ static void print_status(uint8_t s)
            (s & 0x01) ? "one-shot" : "continuous");
 }
 
-/*
- * Read ROM — only works with a SINGLE 1-Wire device on the bus.
- * Returns the 8-byte ROM code (family + 48-bit serial + CRC).
- */
-static int ow_read_rom(uint8_t rom[8])
-{
-    if (!ow_reset()) {
-        printf("  No presence pulse.\n");
-        return -1;
-    }
-    ow_write_byte(OW_CMD_READ_ROM);
-    for (int i = 0; i < 8; i++)
-        rom[i] = ow_read_byte();
-    return 0;
-}
 
-/*
- * CRC8 for 1-Wire ROM codes (polynomial x^8+x^5+x^4+1 = 0x131).
- */
-static uint8_t ow_crc8(const uint8_t *data, int len)
-{
-    uint8_t crc = 0;
-    for (int i = 0; i < len; i++) {
-        uint8_t byte = data[i];
-        for (int j = 0; j < 8; j++) {
-            uint8_t mix = (crc ^ byte) & 0x01;
-            crc >>= 1;
-            if (mix) crc ^= 0x8C;
-            byte >>= 1;
-        }
-    }
-    return crc;
-}
-
-static void print_rom(const uint8_t rom[8])
-{
-    printf("  ROM: ");
-    for (int i = 0; i < 8; i++)
-        printf("%02X", rom[i]);
-
-    uint8_t crc = ow_crc8(rom, 7);
-    printf("  (family=0x%02X, CRC %s)\n", rom[0],
-           crc == rom[7] ? "OK" : "BAD");
-
-    /* Identify known families */
-    switch (rom[0]) {
-    case 0x22: printf("         → Family 0x22 (DS1822 / DS1821 in 1-Wire mode)\n"); break;
-    case 0x10: printf("         → DS18S20 (thermometer)\n"); break;
-    case 0x28: printf("         → DS18B20 (thermometer)\n"); break;
-    case 0x3B: printf("         → DS1825 (thermometer)\n"); break;
-    case 0x42: printf("         → DS28EA00 (thermometer)\n"); break;
-    case 0x00: printf("         → Family 0 — likely thermostat-mode DS1821\n"); break;
-    default:   printf("         → Unknown family\n"); break;
-    }
-}
-
-/*
- * 1-Wire Search ROM algorithm (per Maxim AN187).
- * Finds all devices on the bus and stores their 64-bit ROM codes.
- * Returns the number of devices found.
- */
-static int ow_search_rom(uint8_t roms[][8], int max_devices)
-{
-    int device_count = 0;
-    int last_discrepancy = -1;
-    int done = 0;
-
-    uint8_t rom[8];
-    memset(rom, 0, sizeof(rom));
-
-    while (!done && device_count < max_devices) {
-        if (!ow_reset()) {
-            if (device_count == 0)
-                printf("  No presence pulse on search.\n");
-            break;
-        }
-
-        ow_write_byte(OW_CMD_SEARCH_ROM);
-
-        int new_discrepancy = -1;
-
-        for (int bit_pos = 0; bit_pos < 64; bit_pos++) {
-            int byte_idx = bit_pos / 8;
-            int bit_mask = 1 << (bit_pos % 8);
-
-            /* Read two bits: id_bit and cmp_bit */
-            int id_bit  = ow_read_bit();
-            int cmp_bit = ow_read_bit();
-
-            if (id_bit && cmp_bit) {
-                /* No devices responding — error or done */
-                done = 1;
-                break;
-            }
-
-            int dir;
-            if (id_bit != cmp_bit) {
-                /* All devices agree on this bit */
-                dir = id_bit;
-            } else {
-                /* Discrepancy — both 0 and 1 present */
-                if (bit_pos == last_discrepancy) {
-                    dir = 1;  /* Take the 1 branch this time */
-                } else if (bit_pos > last_discrepancy) {
-                    dir = 0;  /* Take the 0 branch first */
-                    new_discrepancy = bit_pos;
-                } else {
-                    /* Use same direction as last search */
-                    dir = (rom[byte_idx] & bit_mask) ? 1 : 0;
-                    if (dir == 0)
-                        new_discrepancy = bit_pos;
-                }
-            }
-
-            /* Set the bit in our ROM buffer */
-            if (dir)
-                rom[byte_idx] |= bit_mask;
-            else
-                rom[byte_idx] &= ~bit_mask;
-
-            /* Write direction bit to select that branch */
-            ow_write_bit(dir);
-        }
-
-        if (!done) {
-            memcpy(roms[device_count], rom, 8);
-            device_count++;
-        }
-
-        last_discrepancy = new_discrepancy;
-        if (last_discrepancy < 0)
-            done = 1;  /* No more discrepancies — all devices found */
-    }
-
-    return device_count;
-}
 
 
 /* ── Actions ─────────────────────────────────────────────────────── */
-
-static int action_scan(void)
-{
-    printf("\n=== Scanning 1-Wire bus on GPIO%d ===\n\n", gpio_pin);
-
-    /* First: basic presence check */
-    printf("  1. Presence check...\n");
-    if (!ow_reset()) {
-        printf("     No presence pulse — no devices responding at all.\n");
-        printf("     Check wiring: DQ→GPIO%d, 4.7kΩ pullup to 3.3V, GND.\n",
-               gpio_pin);
-        return -1;
-    }
-    printf("     Presence pulse detected — at least one device on bus.\n\n");
-
-    /* Try Read ROM (only valid with exactly 1 device) */
-    printf("  2. Read ROM (single-device command)...\n");
-    uint8_t rom[8];
-    if (ow_read_rom(rom) == 0) {
-        uint8_t crc = ow_crc8(rom, 7);
-        if (crc == rom[7] && rom[0] != 0x00) {
-            printf("     Single device found:\n     ");
-            print_rom(rom);
-        } else {
-            printf("     Got garbled ROM (multi-device collision or thermostat mode):\n     ");
-            print_rom(rom);
-            printf("     This is expected with multiple devices or thermostat-mode DS1821s.\n");
-        }
-    }
-    printf("\n");
-
-    /* Search ROM to find all 1-Wire mode devices */
-    printf("  3. Search ROM (multi-device enumeration)...\n");
-    uint8_t found_roms[16][8];
-    int count = ow_search_rom(found_roms, 16);
-
-    if (count == 0) {
-        printf("     No devices found via Search ROM.\n");
-        printf("     If DS1821s are in thermostat mode, they won't respond to ROM commands.\n");
-    } else {
-        printf("     Found %d device(s):\n", count);
-        int valid = 0, phantom = 0;
-        for (int i = 0; i < count; i++) {
-            printf("     [%d] ", i + 1);
-            print_rom(found_roms[i]);
-            uint8_t crc = ow_crc8(found_roms[i], 7);
-            if (crc == found_roms[i][7] && found_roms[i][0] != 0x00)
-                valid++;
-            else
-                phantom++;
-        }
-        if (phantom > 0) {
-            printf("\n     %d phantom device(s) detected — likely DS1821(s) in thermostat mode\n", phantom);
-            printf("     driving the bus and creating false ROM codes.\n");
-        }
-        if (valid > 0) {
-            printf("\n     %d valid 1-Wire device(s) found.\n", valid);
-        }
-    }
-
-    /* Probe thermostat-mode status (all respond simultaneously) */
-    printf("\n  4. Direct status read (thermostat-mode, no ROM)...\n");
-    printf("     Note: If multiple devices respond, bits are ANDed together.\n");
-    uint8_t status;
-    if (ds1821_read_status_reg(&status) == 0) {
-        print_status(status);
-        int8_t th, tl;
-        if (ds1821_read_th(&th) == 0 && ds1821_read_tl(&tl) == 0)
-            printf("\n  Alarm thresholds: TH=%d°C  TL=%d°C\n", th, tl);
-    }
-
-    printf("\n  Summary:\n");
-    printf("  ─────────\n");
-    printf("  Presence:      YES\n");
-    printf("  ROM devices:   %d\n", count);
-    printf("  You said:      3 devices connected\n");
-    printf("\n  Next steps:\n");
-    printf("    sudo ./ds1821-program fix     — attempt to reprogram all to 1-Wire mode\n");
-    printf("    sudo ./ds1821-program temp    — read temperature (all respond at once)\n");
-
-    return 0;
-}
 
 /*
  * Read the TOUT state on the DQ/data pin.
@@ -934,7 +715,6 @@ static void usage(const char *prog)
            "Direct GPIO bit-bang utility for DS1821 (thermostat mode).\n"
            "Must be run as root.\n\n"
            "Actions:\n"
-           "  scan         Enumerate all devices on the bus\n"
            "  probe        Read status register and thresholds\n"
            "  temp         Start conversion and read temperature\n"
            "  status       Read everything (key=value for scripting)\n"
@@ -1043,9 +823,7 @@ int main(int argc, char *argv[])
 
     int ret = 0;
 
-    if (strcmp(action, "scan") == 0) {
-        ret = action_scan();
-    } else if (strcmp(action, "probe") == 0) {
+    if (strcmp(action, "probe") == 0) {
         ret = action_probe();
     } else if (do_status) {
         ret = action_status();

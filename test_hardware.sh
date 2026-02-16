@@ -194,7 +194,7 @@ assert_exit "--help exits 0" 0 $?
 
 # --help shows usage
 OUTPUT=$($PROG --help 2>&1)
-assert_match "--help shows actions" "scan.*probe.*temp.*status" "$OUTPUT"
+assert_match "--help shows actions" "probe.*temp.*status" "$OUTPUT"
 assert_match "--help shows --gpio" "--gpio" "$OUTPUT"
 assert_match "--help shows --power-gpio" "--power-gpio" "$OUTPUT"
 assert_match "--help shows --read-tout" "--read-tout" "$OUTPUT"
@@ -364,22 +364,9 @@ fi
 
 echo ""
 
-# ── 5. Scan ───────────────────────────────────────────────────────
+# ── 5. Thermostat thresholds ─────────────────────────────────────
 
-printf "${BOLD}5. Scan — bus enumeration${RESET}\n"
-echo "────────────────────────────────────────────────────────"
-
-SCAN_OUT=$($PROG scan 2>&1)
-SCAN_RC=$?
-
-assert_exit "scan exits 0" 0 "$SCAN_RC"
-assert_match "scan shows presence pulse" "[Pp]resence" "$SCAN_OUT"
-
-echo ""
-
-# ── 6. Thermostat thresholds ─────────────────────────────────────
-
-printf "${BOLD}6. Thermostat thresholds${RESET}\n"
+printf "${BOLD}5. Thermostat thresholds${RESET}\n"
 echo "────────────────────────────────────────────────────────"
 
 # Read current thresholds
@@ -438,9 +425,9 @@ fi
 
 echo ""
 
-# ── 7. Power GPIO tests ──────────────────────────────────────────
+# ── 6. Power GPIO tests ──────────────────────────────────────────
 
-printf "${BOLD}7. Power GPIO (--power-gpio)${RESET}\n"
+printf "${BOLD}6. Power GPIO (--power-gpio)${RESET}\n"
 echo "────────────────────────────────────────────────────────"
 
 if [[ -z "$POWER_PIN" ]]; then
@@ -491,9 +478,9 @@ fi
 
 echo ""
 
-# ── 8. TOUT tests ────────────────────────────────────────────────
+# ── 7. TOUT tests ────────────────────────────────────────────────
 
-printf "${BOLD}8. TOUT (--read-tout)${RESET}\n"
+printf "${BOLD}7. TOUT (--read-tout)${RESET}\n"
 echo "────────────────────────────────────────────────────────"
 
 if [[ $TOUT_TEST -eq 0 ]]; then
@@ -529,9 +516,9 @@ fi
 
 echo ""
 
-# ── 9. ds1821-update wrapper script ──────────────────────────────
+# ── 8. ds1821-update wrapper script ──────────────────────────────
 
-printf "${BOLD}9. ds1821-update wrapper script${RESET}\n"
+printf "${BOLD}8. ds1821-update wrapper script${RESET}\n"
 echo "────────────────────────────────────────────────────────"
 
 if [[ $SKIP_SLOW -eq 1 ]]; then
@@ -582,9 +569,9 @@ fi
 
 echo ""
 
-# ── 10. Edge cases and error handling ─────────────────────────────
+# ── 9. Edge cases and error handling ─────────────────────────────
 
-printf "${BOLD}10. Edge cases and error handling${RESET}\n"
+printf "${BOLD}9. Edge cases and error handling${RESET}\n"
 echo "────────────────────────────────────────────────────────"
 
 # Verbose mode shouldn't crash

@@ -107,9 +107,6 @@ The tool reads the DS1821 via direct GPIO bit-bang using the pigpio library.
 ### Other commands
 
 ```bash
-# Scan the bus — find all devices, check thermostat-mode status
-sudo ./ds1821-program scan
-
 # Read status register and alarm thresholds
 sudo ./ds1821-program probe
 
