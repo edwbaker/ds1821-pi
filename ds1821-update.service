@@ -1,0 +1,11 @@
+[Unit]
+Description=Read DS1821 temperature sensors
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ds1821-update
+# Config: /etc/ds1821/sensors.conf
+# Override with: systemctl edit ds1821-update.service
+# ExecStart=
+# ExecStart=/usr/bin/ds1821-update --config /path/to/other.conf

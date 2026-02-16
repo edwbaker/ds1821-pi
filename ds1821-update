@@ -1,0 +1,145 @@
+#!/bin/bash
+# ds1821-update — Read DS1821 via bit-bang and write to /run/ds1821/
+#
+# Reads sensor definitions from a config file and updates readings
+# for each sensor listed.
+#
+# Config file: /etc/ds1821/sensors.conf (override with --config)
+# One sensor per line:  <name> <data-gpio> [power-gpio] [read-tout]
+#
+# Writes files that mirror w1_therm sysfs:
+#   /run/ds1821/<name>/temperature    millidegrees (e.g. 20340 = 20.34°C)
+#   /run/ds1821/<name>/thresholds     "th=25 tl=18"
+#   /run/ds1821/<name>/alarms         "thf=1 tlf=0"
+#   /run/ds1821/<name>/tout           "0" or "1" (if --read-tout set)
+#
+# Usage:
+#   sudo ds1821-update                              # read /etc/ds1821/sensors.conf
+#   sudo ds1821-update --config ./sensors.conf      # custom config
+#   sudo ds1821-update --name indoor --gpio 17      # single sensor (no config file)
+#
+# Multiple DS1821s on the SAME bus cannot be addressed individually.
+# Use separate GPIO pins or power them one at a time (--power-gpio).
+#
+# Then:
+#   cat /run/ds1821/indoor/temperature
+#   cat /run/ds1821/outdoor/tout
+
+set -euo pipefail
+
+CONF="/etc/ds1821/sensors.conf"
+PROG="${PROG:-ds1821}"
+
+# ── Single-sensor mode (legacy command-line interface) ──────────
+
+read_single() {
+    local name="$1"; shift
+    local rundir="/run/ds1821/${name}"
+    local args=("$@")
+
+    # Get full status (key=value output)
+    local output
+    output=$("$PROG" -q status "${args[@]}" 2>/dev/null) || {
+        # Fallback: try temp-only read
+        local temp
+        temp=$("$PROG" -q temp "${args[@]}" 2>/dev/null) || {
+            echo "ds1821-update: failed to read DS1821 '${name}'" >&2
+            return 1
+        }
+        local milli
+        milli=$(awk "BEGIN { printf \"%d\", $temp * 1000 }")
+        mkdir -p "$rundir"
+        echo "$milli" > "$rundir/temperature"
+        return 0
+    }
+
+    mkdir -p "$rundir"
+
+    local thf="" tlf="" th="" tl=""
+    while IFS='=' read -r key value; do
+        case "$key" in
+            temperature) echo "$value" > "$rundir/temperature" ;;
+            thf) thf="$value" ;;
+            tlf) tlf="$value" ;;
+            th)  th="$value" ;;
+            tl)  tl="$value" ;;
+            tout) echo "$value" > "$rundir/tout" ;;
+        esac
+    done <<< "$output"
+
+    if [[ -n "$thf" && -n "$tlf" ]]; then
+        echo "thf=${thf} tlf=${tlf}" > "$rundir/alarms"
+    fi
+    if [[ -n "$th" && -n "$tl" ]]; then
+        echo "th=${th} tl=${tl}" > "$rundir/thresholds"
+    fi
+}
+
+# ── Parse command-line arguments ────────────────────────────────
+
+NAME=""
+DS1821_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config)
+            CONF="$2"
+            shift 2
+            ;;
+        --name)
+            NAME="$2"
+            shift 2
+            ;;
+        *)
+            DS1821_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# ── Single-sensor mode: --name was given on command line ────────
+
+if [[ -n "$NAME" ]]; then
+    read_single "$NAME" "${DS1821_ARGS[@]}"
+    exit $?
+fi
+
+# ── Multi-sensor mode: read config file ────────────────────────
+
+if [[ ! -f "$CONF" ]]; then
+    # No config and no --name: fall back to default single sensor
+    read_single "0" "${DS1821_ARGS[@]}"
+    exit $?
+fi
+
+ERRORS=0
+
+while IFS= read -r line; do
+    # Strip comments and blank lines
+    line="${line%%#*}"
+    [[ -z "${line// /}" ]] && continue
+
+    # Parse fields: name data-gpio [power-gpio] [read-tout]
+    read -r sensor_name data_gpio power_gpio read_tout _rest <<< "$line"
+
+    if [[ -z "$sensor_name" || -z "$data_gpio" ]]; then
+        echo "ds1821-update: skipping malformed line: $line" >&2
+        continue
+    fi
+
+    args=(--gpio "$data_gpio")
+    if [[ -n "${power_gpio:-}" && "$power_gpio" != "-" ]]; then
+        args+=(--power-gpio "$power_gpio")
+    fi
+    if [[ -n "${read_tout:-}" && "$read_tout" =~ ^(yes|1|true)$ ]]; then
+        args+=(--read-tout)
+    fi
+
+    read_single "$sensor_name" "${args[@]}" || ((ERRORS++))
+
+done < "$CONF"
+
+if [[ "$ERRORS" -gt 0 ]]; then
+    echo "ds1821-update: $ERRORS sensor(s) failed" >&2
+    exit 1
+fi

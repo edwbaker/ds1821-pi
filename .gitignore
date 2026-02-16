@@ -1,0 +1,13 @@
+ds1821-program
+ds1821-read
+*.o
+*.deb
+*.buildinfo
+*.changes
+*.dsc
+*.tar.xz
+debian/ds1821-tools/
+debian/debhelper-build-stamp
+debian/files
+debian/*.substvars
+debian/.debhelper/

@@ -1,0 +1,21 @@
+Source: ds1821-tools
+Section: utils
+Priority: optional
+Maintainer: Ed <ed@ebaker.me.uk>
+Build-Depends: debhelper-compat (= 13), libpigpio-dev
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ds1821-tools
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libpigpio1
+Description: DS1821 1-Wire thermometer/thermostat tools for Raspberry Pi
+ Command-line tools for reading temperature and programming thermostat
+ thresholds on a DS1821 1-Wire sensor via direct GPIO bit-bang (pigpio).
+ The DS1821 in thermostat mode is incompatible with the kernel w1 stack
+ and must be the only device on its bus.
+ .
+ Includes:
+  - ds1821: read temperature, set TH/TL thresholds, scan bus, probe status
+  - ds1821-update: wrapper that writes readings to /run/ds1821/
+  - systemd timer (disabled by default, enable with systemctl)

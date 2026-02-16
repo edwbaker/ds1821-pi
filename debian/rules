@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) ds1821-program
+
+override_dh_auto_install:
+	install -D -m 0755 ds1821-program $(CURDIR)/debian/ds1821-tools/usr/bin/ds1821
+	install -D -m 0755 ds1821-update $(CURDIR)/debian/ds1821-tools/usr/bin/ds1821-update
+	install -D -m 0644 ds1821-update.service $(CURDIR)/debian/ds1821-tools/lib/systemd/system/ds1821-update.service
+	install -D -m 0644 ds1821-update.timer $(CURDIR)/debian/ds1821-tools/lib/systemd/system/ds1821-update.timer
+	install -D -m 0644 sensors.conf $(CURDIR)/debian/ds1821-tools/etc/ds1821/sensors.conf
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+override_dh_auto_clean:
+	$(MAKE) clean
+
+override_dh_auto_test:
